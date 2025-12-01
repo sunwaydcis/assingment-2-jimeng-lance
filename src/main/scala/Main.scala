@@ -52,6 +52,20 @@ trait CSVReader {
   }
 }
 
+// Utility methods for analyzing lists
+trait AnalysisUtils {
+
+  // Counts how many times each element appears in a list
+  def countOccurrences[T](list: List[T]): Map[T, Int] =
+    list.groupBy(identity)    // Group identical elements together
+      .view.mapValues(_.size) // Count how many items are in each group
+      .toMap                 // Convert to a normal Map
+
+  // Finds the element that appears the most
+  def maxByCount[T](counts: Map[T, Int]): (T, Int) =
+    counts.maxBy(_._2)        // Return the element with the highest count
+}
+
 
 object Main extends CSVReader {
 
