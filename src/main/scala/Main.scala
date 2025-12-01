@@ -66,15 +66,51 @@ trait AnalysisUtils {
     counts.maxBy(_._2)        // Return the element with the highest count
 }
 
+// Class to extract a specific column from CSV data
+// csvData: List of rows, each row is an Array of Strings
+class ColumnExtractor(csvData: List[Array[String]]) {
 
-object Main extends CSVReader {
+  // Returns the index of the column with the given name, if it exists
+  private def columnIndex(name: String): Option[Int] = {
+    val header = csvData.head           // The first row is assumed to be the header
+    val idx = header.indexOf(name)      // Find the index of the column by name
+    if (idx >= 0) Some(idx) else None   // Return Some(index) if found, None otherwise
+  }
+
+  // Returns all values from a column as a List[String]
+  // If the column doesn't exist, returns an empty list
+  def getColumn(name: String): List[String] =
+    columnIndex(name)                     // Get the column index
+      .map(i => csvData.tail.map(row => row(i))) // Map over all rows except the header
+      .getOrElse(List.empty)              // Return empty list if column not found
+}
+
+// Class to generate a report about favorite countries
+// filePath: Path to the CSV file
+class FavoriteCountryReport(filePath: String)
+  extends CSVReader with AnalysisUtils { // Assumes CSVReader can read CSV and AnalysisUtils has helper methods
+
+  private val data = readCSV(filePath)       // Read the CSV file into a list of rows
+  private val extractor = new ColumnExtractor(data) // Create a ColumnExtractor for easy column access
+
+  // Returns the favorite country (most frequent "Destination Country") and its count
+  // Returns None if no countries are present
+  def favoriteCountry: Option[(String, Int)] = {
+    val countries = extractor.getColumn("Destination Country") // Extract the "Destination Country" column
+    if (countries.nonEmpty)
+      Some(maxByCount(countOccurrences(countries))) // Count occurrences and find the most frequent
+    else None
+  }
+}
+
+object Main{
 
   def main(args: Array[String]): Unit = {
     // Read the CSV file
-    val data = readCSV("resources/Hotel_Dataset.csv")
+    val report = new FavoriteCountryReport("resources/Hotel_Dataset.csv")
 
-    // Print how many rows were loaded from the CSV file after removing duplicate
-    println(s"Loaded ${data.length} rows after removing duplicates.")
+    // Print the country name and the total amount
+    println(report.favoriteCountry)
 
   }
 }
