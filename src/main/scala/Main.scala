@@ -1,36 +1,37 @@
 import java.nio.charset.StandardCharsets
 import scala.io.Source
 
-object Main {
+
+trait CSVReader {
+
+  // Reads a CSV file from the given file path and returns the contents
+  // as a List of Array[String], where each Array represents a row split by commas.
+  def readCSV(filePath: String): List[Array[String]] = {
+
+    // Open the file using ISO-8859-1 encoding
+    val file = Source.fromFile(filePath, StandardCharsets.ISO_8859_1.toString)
+
+    // Read all lines from the file into a List[String]
+    val lines = file.getLines().toList
+
+    // Close the file to release system resources
+    file.close()
+
+    // Split each line by commas, trim whitespace, and convert to List[Array[String]]
+    lines.map(_.split(",").map(_.trim))
+  }
+}
+
+
+object Main extends CSVReader {
 
   def main(args: Array[String]): Unit = {
-    // Path to your CSV file
-    val filePath = "resources/Hotel_Dataset.csv"
+    // Read the CSV file and store the parsed rows in 'data'
+    val data = readCSV("resources/Hotel_Dataset.csv")
 
-    // Open the CSV file with ISO_8859_1 encoding
-    val bufferedSource = Source.fromFile(filePath, StandardCharsets.ISO_8859_1.toString)
+    // Print how many rows were loaded from the CSV file
+    println(s"Loaded ${data.length} rows.")
 
-    // Read all lines into a List[String]
-    val lines = bufferedSource.getLines().toList
-
-    // Close the file to free resources
-    bufferedSource.close()
-
-    // Check if the CSV is empty
-    if (lines.isEmpty) {
-      println("Error: The dataset is empty.")
-    } else {
-      // Split the first line to get the header (column names)
-      val header = lines.head.split(",").map(_.trim)
-
-      // Print the header to verify the columns
-      println("Columns in CSV:")
-      header.foreach { column =>
-        println(s"- $column") // Each column printed with a dash for clarity
-      }
-
-
-      }
-    }
+  }
   }
 
