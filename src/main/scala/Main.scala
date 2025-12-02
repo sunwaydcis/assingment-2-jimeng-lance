@@ -1,10 +1,12 @@
 import java.nio.charset.StandardCharsets
 import scala.io.Source
 
+// remembers which files we already warned about
+object CSVCache {
+  var alreadyPrinted = Set[String]()
+}
 
 trait CSVReader {
-
-
   // Reads a CSV file and returns the contents as a List[Array[String]].
   // Duplicate rows (after the header) are removed while preserving order.
 
@@ -25,14 +27,18 @@ trait CSVReader {
     // Data rows (remove duplicates, keep first occurrence)
     val dataRows = lines.tail.map(_.split(",").map(_.trim))
 
-    // Check for duplicates
-    val uniqueRowsSet = dataRows.map(_.mkString(",")).toSet
-    if (uniqueRowsSet.size < dataRows.size) {
-      println(s"Notice: ${dataRows.size - uniqueRowsSet.size} duplicate row(s) found and removed.")
+    // Check for duplicates and also make sure the notice is printed once
+    if (!CSVCache.alreadyPrinted.contains(filePath)) {
+      val uniqueRowsSet = dataRows.map(_.mkString(",")).toSet
+      if (uniqueRowsSet.size < dataRows.size) {
+        println(s"Notice: ${dataRows.size - uniqueRowsSet.size} duplicate row(s) found and removed.")
+        println("")
+      }
+      CSVCache.alreadyPrinted += filePath // mark this file as processed
     }
 
     // Remove exact duplicate rows
-    val uniqueDataRows = uniqueRowsSet.map(_.split(",")).toList
+    val uniqueDataRows = dataRows.map(_.mkString(",")).toSet.map(_.split(",")).toList
 
     // Return header + unique rows
     header +: uniqueDataRows
