@@ -267,5 +267,17 @@ object Main {
         println("No hotel data available.")
     }
 
+    println()
+
+    // Show the most profitable hotel, including stats to justify the choice
+    hotelReport.mostProfitableHotel match {
+      case Some(h) =>
+        println(s"Most profitable hotel: ${h.name}")
+        println(s"Total Visitors: ${h.totalVisitors}")
+        println(s"Bookings: ${h.bookings}")
+        println(f"Avg Profit Margin: ${h.avgProfitMargin * 100}%.2f%%")
+      case None =>
+        println("Could not determine most profitable hotel.")
+    }
   }
 }
