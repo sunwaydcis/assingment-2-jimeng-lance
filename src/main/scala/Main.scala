@@ -122,7 +122,7 @@ class HotelAnalyzer(private val filePath: String)
      bookings: Int
   )
 
-  //best value hotel for the customer
+  // Method to find best value hotel for the customer
   def BestValueHotel: Option[HotelStats] = {
 
     // Extract columns that is needed for the analysis
@@ -180,6 +180,58 @@ class HotelAnalyzer(private val filePath: String)
       }
       // Return the hotel with the lowest total score which is the one with best value
       Some(ranked.minBy(_._2)._1)
+    }
+  }
+
+  // Method to find the most profitable hotel
+  def mostProfitableHotel: Option[HotelStats] = {
+
+    // Extract columns that is needed for the analysis
+    val hotelIdx = columnIndex(csvData, "Hotel Name")
+    val peopleIdx = columnIndex(csvData, "No. Of People")
+    val marginIdx = columnIndex(csvData, "Profit Margin")
+
+    // if cant fetch any data it will show this message and end the method
+    if (List(hotelIdx, peopleIdx, marginIdx).contains(None)) {
+      println("Warning: Missing required columns for mostProfitableHotel analysis.")
+      return None
+    }
+
+    // Find which hotel makes the most money
+    // The hotel with the highest profit score is the most profitable one
+    val winnerName = csvData.tail
+      .map { row =>
+        (
+          row(hotelIdx.get),
+          safeInt(row(peopleIdx.get)),
+          safeDouble(row(marginIdx.get))
+        )
+      }
+      .groupBy(_._1) // group them by hotel
+      .map { case (name, rows) =>
+        val totalVisitors = rows.map(_._2).sum
+        val avgMargin = rows.map(_._3).sum / rows.size
+        (name, totalVisitors * avgMargin) // Calculate the profit of each hotel
+      }
+      .maxBy(_._2)._1
+
+    // Get stats for the winning hotel
+    val winnerRows = csvData.tail.filter(row => row(hotelIdx.get) == winnerName)
+    val n = winnerRows.size
+
+    if (n == 0) None
+    else {
+      val totalVisitors = winnerRows.map(r => safeInt(r(peopleIdx.get))).sum
+      val avgMargin = winnerRows.map(r => safeDouble(r(marginIdx.get))).sum / n
+
+      Some(HotelStats(
+        name = winnerName,
+        avgPrice = 0.0, // not diplayed
+        avgDiscount = 0.0, // not diplayed
+        avgProfitMargin = avgMargin,
+        totalVisitors = totalVisitors,
+        bookings = n
+      ))
     }
   }
 }
