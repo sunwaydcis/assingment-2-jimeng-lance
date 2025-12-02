@@ -48,6 +48,25 @@ trait CSVReader {
 // Utility methods for analyzing lists
 trait AnalysisUtils {
 
+  // Shared: find column index by name
+  protected def columnIndex(csvData: List[Array[String]], name: String): Option[Int] = {
+    csvData.headOption.flatMap { header =>
+      val idx = header.indexOf(name)
+      if (idx >= 0) Some(idx) else None
+    }
+  }
+
+  // Shared: extract all values from one column
+  protected def getColumn(csvData: List[Array[String]], name: String): List[String] = {
+    columnIndex(csvData, name) match {
+      case Some(idx) =>
+        csvData.tail
+          .filter(row => row.length > idx && row(idx).nonEmpty)
+          .map(row => row(idx))
+      case None => List.empty
+    }
+  }
+
   // Counts how many times each element appears in a list
   def countOccurrences[T](list: List[T]): Map[T, Int] =
     list.groupBy(identity)    // Group identical elements together
@@ -67,27 +86,10 @@ class FavoriteCountryReport(filePath: String)
 
   private val csvData: List[Array[String]] = readCSV(filePath)      // Read the CSV file into a list of rows
 
-  private def columnIndex(name: String): Option[Int] = {
-    csvData.headOption.flatMap { header =>
-      val idx = header.indexOf(name)
-      if (idx >= 0) Some(idx) else None
-    }
-  }
-
-  private def getColumn(name: String): List[String] = {
-    columnIndex(name) match {
-      case Some(idx) =>
-        csvData.tail
-          .filter(row => row.length > idx && row(idx).nonEmpty)
-          .map(row => row(idx))
-      case None => List.empty
-    }
-  }
-
   // Returns the favorite country (most frequent "Destination Country") and its count
   // Returns None if no countries are present
   def favoriteCountry: Option[(String, Int)] = {
-    val countries = getColumn("Destination Country") // Extract the "Destination Country" column
+    val countries = getColumn(csvData, "Destination Country") // Extract the "Destination Country" column
     if (countries.nonEmpty)
       Some(maxByCount(countOccurrences(countries))) // Count occurrences and find the most frequent
     else None
