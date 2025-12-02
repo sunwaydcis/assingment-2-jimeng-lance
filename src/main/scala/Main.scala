@@ -76,6 +76,17 @@ trait AnalysisUtils {
   // Finds the element that appears the most
   def maxByCount[T](counts: Map[T, Int]): (T, Int) =
     counts.maxBy(_._2)        // Return the element with the highest count
+
+  //Helpers that help to convert the values safely
+  //Helper to safely convert string to double
+  protected def safeDouble(s: String): Double = scala.util.Try(s.toDouble).getOrElse(0.0)
+
+  //Helper to safely convert string to int
+  protected def safeInt(s: String): Int = scala.util.Try(s.toInt).getOrElse(0)
+
+  //Helper to safely convert string percentage into normal numbers for calculation
+  protected def safePercent(s: String): Double =
+    scala.util.Try(s.replace("%", "").trim.toDouble).getOrElse(0.0) / 100.0
 }
 
 
@@ -96,21 +107,113 @@ class FavoriteCountryReport(filePath: String)
   }
 }
 
+class HotelAnalyzer(private val filePath: String)
+  extends CSVReader with AnalysisUtils { // Assumes CSVReader can read CSV and AnalysisUtils has helper methods
+
+  private val csvData: List[Array[String]] = readCSV(filePath) // Read the CSV file into a list of rows
+
+  // A small detail list for each hotel
+  case class HotelStats(
+     name: String,
+     avgPrice: Double,
+     avgDiscount: Double,
+     avgProfitMargin: Double,
+     totalVisitors: Int,
+     bookings: Int
+  )
+
+  //best value hotel for the customer
+  def BestValueHotel: Option[HotelStats] = {
+
+    // Extract columns that is needed for the analysis
+    val hotelIdx = columnIndex(csvData, "Hotel Name")
+    val priceIdx = columnIndex(csvData, "Booking Price[SGD]")
+    val discIdx = columnIndex(csvData, "Discount")
+    val marginIdx = columnIndex(csvData, "Profit Margin")
+    val peopleIdx = columnIndex(csvData, "No. Of People")
+
+    // if cant fetch any data it will show this message and end the method
+    if (List(hotelIdx, priceIdx, discIdx, marginIdx, peopleIdx).contains(None)) {
+      println("Warning: Missing required columns for BestValueHotel analysis.")
+      return None
+    }
+
+    // Go through every row and collect the 5 values we need
+    val stats = csvData.tail
+      .map { row =>
+        (
+          row(hotelIdx.get),
+          safeDouble(row(priceIdx.get)),
+          safePercent(row(discIdx.get)),
+          safeDouble(row(marginIdx.get)),
+          safeInt(row(peopleIdx.get))
+        )
+      }
+      .groupBy(_._1) // group the booking records by hotel name, then calculate averages and totals for each hotel
+      .map { case (name, rows) =>
+        val n = rows.size
+        HotelStats(
+          name = name,
+          avgPrice = rows.map(_._2).sum / n,
+          avgDiscount = rows.map(_._3).sum / n,
+          avgProfitMargin = rows.map(_._4).sum / n,
+          totalVisitors = rows.map(_._5).sum,
+          bookings = n
+        )
+      }
+      .toList
+
+    // If there is no data found it will return nothing
+    if (stats.isEmpty) None
+    else {
+      // Rank each hotel
+      // Lower price = better (rank 1 is cheapest)
+      // Higher discount = better (rank 1 is highest discount)
+      // Lower profit margin = better for customer
+      val ranked = stats.map { h =>
+        // Get all average discounts and sort them from lowest to highest (opposite for discount)
+        // After that find the hotel's position in the list and add 1 (ranks start at 1)
+        val priceRank = stats.map(_.avgPrice).sorted.indexOf(h.avgPrice) + 1
+        val discountRank = stats.map(_.avgDiscount).sorted.reverse.indexOf(h.avgDiscount) + 1
+        val marginRank = stats.map(_.avgProfitMargin).sorted.indexOf(h.avgProfitMargin) + 1
+        (h, priceRank + discountRank + marginRank) // calculate the total score for each hotel
+      }
+      // Return the hotel with the lowest total score which is the one with best value
+      Some(ranked.minBy(_._2)._1)
+    }
+  }
+}
+
 object Main {
 
   def main(args: Array[String]): Unit = {
     // Read the CSV file
     val filePath = "resources/Hotel_Dataset.csv"
-    val report = new FavoriteCountryReport(filePath)
+    val countryReport = new FavoriteCountryReport(filePath)
+    val hotelReport   = new HotelAnalyzer(filePath)
 
     // Print the country name and the total amount
-    report.favoriteCountry match {
+    countryReport.favoriteCountry match {
       case Some((country, count)) =>
         println(s"Country with the highest number of bookings: $country")
         println(s"Number of bookings (unique rows only): $count")
       case None =>
         println("No data found or 'Destination Country' column missing!")
-
     }
+
+    println()
+
+    // Show the hotel that gives customers the best deal, including averages to justify the choice
+    hotelReport.BestValueHotel match {
+      case Some(h) =>
+        println(s"Best value hotel for customers: ${h.name}")
+        println(f"Average Price: ${h.avgPrice}%.2f SGD")
+        println(f"Average Discount: ${h.avgDiscount * 100}%.1f%%")
+        println(f"Average Profit Margin: ${h.avgProfitMargin * 100}%.1f%%")
+        println(s"Total Visitors: ${h.totalVisitors} | Bookings: ${h.bookings}")
+      case None =>
+        println("No hotel data available.")
+    }
+
   }
 }
