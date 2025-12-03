@@ -119,8 +119,12 @@ class HotelAnalyzer(private val filePath: String)
      avgDiscount: Double,
      avgProfitMargin: Double,
      totalVisitors: Int,
-     bookings: Int
-  )
+     bookings: Int,
+     scorePrice: Double = 0.0,
+     scoreDiscount: Double = 0.0,
+     scoreMargin: Double = 0.0,
+     totalScore: Double = 0.0
+   )
 
   // Method to find best value hotel for the customer
   def BestValueHotel: Option[HotelStats] = {
@@ -166,20 +170,44 @@ class HotelAnalyzer(private val filePath: String)
     // If there is no data found it will return nothing
     if (stats.isEmpty) None
     else {
-      // Rank each hotel
-      // Lower price = better (rank 1 is cheapest)
-      // Higher discount = better (rank 1 is highest discount)
-      // Lower profit margin = better for customer
-      val ranked = stats.map { h =>
-        // Get all average discounts and sort them from lowest to highest (opposite for discount)
-        // After that find the hotel's position in the list and add 1 (ranks start at 1)
-        val priceRank = stats.map(_.avgPrice).sorted.indexOf(h.avgPrice) + 1
-        val discountRank = stats.map(_.avgDiscount).sorted.reverse.indexOf(h.avgDiscount) + 1
-        val marginRank = stats.map(_.avgProfitMargin).sorted.indexOf(h.avgProfitMargin) + 1
-        (h, priceRank + discountRank + marginRank) // calculate the total score for each hotel
+
+      // Find min and max values for all averages
+      val minPrice = stats.minBy(_.avgPrice).avgPrice
+      val maxPrice = stats.maxBy(_.avgPrice).avgPrice
+      val minDiscount = stats.minBy(_.avgDiscount).avgDiscount
+      val maxDiscount = stats.maxBy(_.avgDiscount).avgDiscount
+      val minMargin = stats.minBy(_.avgProfitMargin).avgProfitMargin
+      val maxMargin = stats.maxBy(_.avgProfitMargin).avgProfitMargin
+
+      // Helper function to check for division by zero
+      def safeDivide(numerator: Double, denominator: Double): Double =
+        if (denominator == 0.0) 0.0 else numerator / denominator
+
+      // Normalize and calculate the total economic score of each hotel
+      val scoredStats = stats.map { h =>
+
+        // Price Score (Lower is better)
+        val scorePrice = safeDivide(h.avgPrice - minPrice, maxPrice - minPrice)
+
+        // Discount Score (Higher is better)
+        val scoreDiscount = safeDivide(maxDiscount - h.avgDiscount, maxDiscount - minDiscount)
+
+        // Profit Margin Score (Lower is better)
+        val scoreMargin = safeDivide(h.avgProfitMargin - minMargin, maxMargin - minMargin)
+
+        // Calculate total score
+        val totalScore = scorePrice + scoreDiscount + scoreMargin
+
+        h.copy(
+          scorePrice = scorePrice,
+          scoreDiscount = scoreDiscount,
+          scoreMargin = scoreMargin,
+          totalScore = totalScore
+        )
       }
-      // Return the hotel with the lowest total score which is the one with best value
-      Some(ranked.minBy(_._2)._1)
+
+      // Return the hotel with the lowest score which is the most economical one
+      Some(scoredStats.minBy(_.totalScore))
     }
   }
 
@@ -188,48 +216,48 @@ class HotelAnalyzer(private val filePath: String)
 
     // Extract columns that is needed for the analysis
     val hotelIdx = columnIndex(csvData, "Hotel Name")
-    val peopleIdx = columnIndex(csvData, "No. Of People")
+    val priceIdx = columnIndex(csvData, "Booking Price[SGD]")
+    val discIdx = columnIndex(csvData, "Discount")
     val marginIdx = columnIndex(csvData, "Profit Margin")
+    val peopleIdx = columnIndex(csvData, "No. Of People")
 
     // if cant fetch any data it will show this message and end the method
-    if (List(hotelIdx, peopleIdx, marginIdx).contains(None)) {
+    if (List(hotelIdx, priceIdx, marginIdx).contains(None)) {
       println("Warning: Missing required columns for mostProfitableHotel analysis.")
       return None
     }
 
-    // Find which hotel makes the most money
-    // The hotel with the highest profit score is the most profitable one
-    val winnerName = csvData.tail
+    // Calculate Total Profit (Sum of Price * Margin) for each hotel
+    val hotelProfits = csvData.tail
       .map { row =>
         (
           row(hotelIdx.get),
-          safeInt(row(peopleIdx.get)),
+          safeDouble(row(priceIdx.get)),
           safeDouble(row(marginIdx.get))
         )
       }
       .groupBy(_._1) // group them by hotel
       .map { case (name, rows) =>
-        val totalVisitors = rows.map(_._2).sum
-        val avgMargin = rows.map(_._3).sum / rows.size
-        (name, totalVisitors * avgMargin) // Calculate the profit of each hotel
+        val totalProfit = rows.map { case (_, price, margin) => price * margin }.sum
+        (name, totalProfit)
       }
-      .maxBy(_._2)._1
 
-    // Get stats for the winning hotel
+    // Find the winner by Total Profit
+    val winnerName = hotelProfits.maxBy(_._2)._1
+
+    // Get all records for the winning hotel
     val winnerRows = csvData.tail.filter(row => row(hotelIdx.get) == winnerName)
     val n = winnerRows.size
 
     if (n == 0) None
     else {
-      val totalVisitors = winnerRows.map(r => safeInt(r(peopleIdx.get))).sum
-      val avgMargin = winnerRows.map(r => safeDouble(r(marginIdx.get))).sum / n
-
+      // Recalculate full stats for the winner to return HotelStats object
       Some(HotelStats(
         name = winnerName,
-        avgPrice = 0.0, // not diplayed
-        avgDiscount = 0.0, // not diplayed
-        avgProfitMargin = avgMargin,
-        totalVisitors = totalVisitors,
+        avgPrice = winnerRows.map(r => safeDouble(r(priceIdx.get))).sum / n,
+        avgDiscount = winnerRows.map(r => safePercent(r(discIdx.get))).sum / n,
+        avgProfitMargin = winnerRows.map(r => safeDouble(r(marginIdx.get))).sum / n,
+        totalVisitors = winnerRows.map(r => safeInt(r(peopleIdx.get))).sum,
         bookings = n
       ))
     }
@@ -253,29 +281,22 @@ object Main {
         println("No data found or 'Destination Country' column missing!")
     }
 
-    println()
+    println("")
 
-    // Show the hotel that gives customers the best deal, including averages to justify the choice
+    // Show the hotel that gives customers the best deal
     hotelReport.BestValueHotel match {
       case Some(h) =>
-        println(s"Best value hotel for customers: ${h.name}")
-        println(f"Average Price: ${h.avgPrice}%.2f SGD")
-        println(f"Average Discount: ${h.avgDiscount * 100}%.1f%%")
-        println(f"Average Profit Margin: ${h.avgProfitMargin * 100}%.1f%%")
-        println(s"Total Visitors: ${h.totalVisitors} | Bookings: ${h.bookings}")
+        println(s"The Most Economical Hotel is: ${h.name}")
       case None =>
         println("No hotel data available.")
     }
 
-    println()
+    println("")
 
-    // Show the most profitable hotel, including stats to justify the choice
+    // Show the most profitable hotel
     hotelReport.mostProfitableHotel match {
       case Some(h) =>
-        println(s"Most profitable hotel: ${h.name}")
-        println(s"Total Visitors: ${h.totalVisitors}")
-        println(s"Bookings: ${h.bookings}")
-        println(f"Avg Profit Margin: ${h.avgProfitMargin * 100}%.2f%%")
+        println(s"Most Profitable Hotel: ${h.name}")
       case None =>
         println("Could not determine most profitable hotel.")
     }
