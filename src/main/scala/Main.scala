@@ -11,21 +11,20 @@ trait CSVReader {
   // Duplicate rows (after the header) are removed while preserving order.
 
   def readCSV(filePath: String): List[Array[String]] = {
-    // Open the CSV file with ISO_8859_1 encoding
-    val bufferedSource = Source.fromFile(filePath, StandardCharsets.ISO_8859_1.toString)
-    val lines = bufferedSource.getLines().toList // Read all lines into a list
-    bufferedSource.close() // Close the file
 
-    // Handle empty CSV file
+    val bufferedSource = Source.fromFile(filePath, StandardCharsets.ISO_8859_1.toString)
+    val lines = bufferedSource.getLines().toList
+    bufferedSource.close()
+
     if (lines.isEmpty) {
       println("Error: CSV file is empty.")
       return List.empty
     }
 
-    // Extract header row (first line)
+    // Header row (keep as-is)
     val header = lines.head.split(",").map(_.trim)
 
-    // Extract data rows (all lines after the header)
+    // Data rows (remove duplicates, keep first occurrence)
     val dataRows = lines.tail.map(_.split(",").map(_.trim))
 
     // Check for duplicates and also make sure the notice is printed once
@@ -41,7 +40,7 @@ trait CSVReader {
     // Remove exact duplicate rows
     val uniqueDataRows = dataRows.map(_.mkString(",")).toSet.map(_.split(",")).toList
 
-    // Return header followed by unique data rows
+    // Return header + unique rows
     header +: uniqueDataRows
   }
 }
