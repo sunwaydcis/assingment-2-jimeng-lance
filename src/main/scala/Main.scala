@@ -230,50 +230,76 @@ class HotelAnalyzer(private val filePath: String)
     val marginIdx = columnIndex(csvData, "Profit Margin")
     val peopleIdx = columnIndex(csvData, "No. Of People")
 
-    // if cant fetch any data it will show this message and end the method
-    if (List(hotelIdx, countryIdx, cityIdx, priceIdx, discIdx, marginIdx).contains(None)) {
+    // Check for required columns
+    if (List(hotelIdx, countryIdx, cityIdx, priceIdx, discIdx, marginIdx, peopleIdx).contains(None)) {
       println("Warning: Missing required columns for mostProfitableHotel analysis.")
       return None
     }
 
-    // Calculate Total Profit for each hotel
-    // Profit = Price × Margin × Number of People (per booking)
-    // Then sum across all bookings of that hotel
-    val profitByHotel = csvData.tail
+    // ggregate all necessary stats for all hotels
+    val stats = csvData.tail
       .map { row =>
-        val key = (row(hotelIdx.get), row(countryIdx.get), row(cityIdx.get))
-        val profit = safeDouble(row(priceIdx.get)) *
-          safeDouble(row(marginIdx.get)) *
-          safeInt(row(peopleIdx.get)).toDouble
-        (key, profit)
+        (
+          (row(hotelIdx.get), row(countryIdx.get), row(cityIdx.get)),
+          (
+            safeDouble(row(priceIdx.get)),
+            safePercent(row(discIdx.get)),
+            safeDouble(row(marginIdx.get)),
+            safeInt(row(peopleIdx.get))
+          )
+        )
       }
-      .groupBy(_._1)
-      .view.mapValues(_.map(_._2).sum)
-      .toMap
+      .groupBy(_._1) // Group bookings by hotel (name, country, city)
+      .view.mapValues { entries =>
+        val rows = entries.map(_._2)
+        val n = rows.size
+        // Calculate Total Profit here to populate total profit
+        val totalProfit = entries.map { case (_, (price, _, margin, people)) => price * margin * people }.sum
 
-    // Find hotel with highest total profit
-    profitByHotel.maxByOption(_._2).map { case ((name, country, city), totalProfit) =>
+        HotelStats(
+          name = entries.head._1._1,
+          country = entries.head._1._2,
+          city = entries.head._1._3,
+          avgPrice = rows.map(_._1).sum / n,
+          avgDiscount = rows.map(_._2).sum / n,
+          avgProfitMargin = rows.map(_._3).sum / n,
+          totalVisitors = rows.map(_._4).sum,
+          bookings = n,
+          totalProfit = totalProfit
+        )
+      }
+      .values
+      .toList
 
-      // Get all rows for the winning hotel to compute full stats
-      val winnerRows = csvData.tail.filter { row =>
-        row(hotelIdx.get) == name &&
-          row(countryIdx.get) == country &&
-          row(cityIdx.get) == city
+    if (stats.isEmpty) None
+    else {
+
+      // Find min/max for normalization
+      val minMargin = stats.minBy(_.avgProfitMargin).avgProfitMargin
+      val maxMargin = stats.maxBy(_.avgProfitMargin).avgProfitMargin
+      // Convert Ints to Double for min/max comparison for normalization
+      val minVisitors = stats.minBy(_.totalVisitors).totalVisitors.toDouble
+      val maxVisitors = stats.maxBy(_.totalVisitors).totalVisitors.toDouble
+
+      // core each hotel based on Margin and Visitors
+      val scoredStats = stats.map { h =>
+        // higher margin = better for hotel
+        val scoreMargin = normalize(h.avgProfitMargin, minMargin, maxMargin, lowerBetter = false)
+        // higher visitors = better for hotel
+        val scoreVisitors = normalize(h.totalVisitors.toDouble, minVisitors, maxVisitors, lowerBetter = false)
+
+        // Calculate Total Score
+        // This is the Profitability Score, balancing scale and efficiency
+        val totalScore = (scoreMargin + scoreVisitors) / 2.0
+
+        h.copy(
+          scoreMargin = scoreMargin,
+          totalScore = totalScore
+        )
       }
 
-      val n = winnerRows.size
-
-      HotelStats(
-        name = name,
-        country = country,
-        city = city,
-        avgPrice = winnerRows.map(r => safeDouble(r(priceIdx.get))).sum / n,
-        avgDiscount = winnerRows.map(r => safePercent(r(discIdx.get))).sum / n,
-        avgProfitMargin = winnerRows.map(r => safeDouble(r(marginIdx.get))).sum / n,
-        totalVisitors = winnerRows.map(r => safeInt(r(peopleIdx.get))).sum,
-        bookings = n,
-        totalProfit = totalProfit
-      )
+      // Return the hotel with the highest Profitability Score
+      Some(scoredStats.maxBy(_.totalScore))
     }
   }
 }
@@ -309,8 +335,9 @@ object Main {
     // Show the most profitable hotel
     hotelReport.mostProfitableHotel match {
       case Some(h) =>
-        println(s"Most Profitable Hotel: ${h.name} (${h.city}, ${h.country})")
-        println(s"Number of Visitors: ${h.totalVisitors}")
+        println(s"Most Profitable Hotel (By Profibility Score): ${h.name} (${h.city}, ${h.country})")
+        println(f"Total Profit: SGD ${h.totalProfit}%.2f")
+        println(s"Total Visitors: ${h.totalVisitors}")
       case None =>
         println("Could not determine most profitable hotel.")
     }
